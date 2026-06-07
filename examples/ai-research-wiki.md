@@ -45,7 +45,8 @@ The agent will:
 Or run the script directly:
 
 ```bash
-python3 scripts/lint-wiki.py "$WIKI_PATH"
+SKILL_DIR="$HOME/.cursor/skills/create-wiki-skill"  # directory containing SKILL.md
+python3 "$SKILL_DIR/scripts/lint-wiki.py" "$WIKI_PATH"
 ```
 
 The agent reports:

@@ -5,17 +5,21 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import re
 import sys
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Iterable
+from typing import Dict, Iterable, List, Optional, Set
+
+__version__ = "1.0.1"
 
 WIKI_DIRS = ("entities", "concepts", "comparisons", "queries")
 WIKILINK_RE = re.compile(r"\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]")
 FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---", re.DOTALL)
 REQUIRED_FIELDS = ("title", "created", "updated", "type", "tags", "sources")
+LIST_ITEM_RE = re.compile(r"^\s*-\s+(.+)$")
 
 
 @dataclass
@@ -27,23 +31,66 @@ class Issue:
 
 @dataclass
 class LintReport:
-    issues: list[Issue] = field(default_factory=list)
+    issues: List[Issue] = field(default_factory=list)
 
     def add(self, severity: str, category: str, message: str) -> None:
         self.issues.append(Issue(severity, category, message))
 
 
-def parse_frontmatter(text: str) -> dict[str, str]:
+def parse_inline_array(value: str) -> str:
+    """Parse inline YAML arrays like [model, architecture] into comma-separated text."""
+    inner = value[1:-1].strip()
+    if not inner:
+        return ""
+    items = []
+    for item in inner.split(","):
+        cleaned = item.strip().strip("'\"")
+        if cleaned:
+            items.append(cleaned)
+    return ", ".join(items)
+
+
+def parse_frontmatter(text: str) -> Dict[str, str]:
+    """Parse YAML frontmatter, supporting inline arrays and basic multi-line lists."""
     match = FRONTMATTER_RE.match(text)
     if not match:
         return {}
     block = match.group(1)
-    data: dict[str, str] = {}
-    for line in block.splitlines():
-        if ":" not in line:
+    data: Dict[str, str] = {}
+    lines = block.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            i += 1
             continue
+        if ":" not in line:
+            i += 1
+            continue
+
         key, _, value = line.partition(":")
-        data[key.strip()] = value.strip()
+        key = key.strip()
+        value = value.strip()
+
+        if not value:
+            items: List[str] = []
+            i += 1
+            while i < len(lines):
+                item_match = LIST_ITEM_RE.match(lines[i])
+                if not item_match:
+                    break
+                items.append(item_match.group(1).strip().strip("'\""))
+                i += 1
+            if items:
+                data[key] = ", ".join(items)
+            continue
+
+        if value.startswith("[") and value.endswith("]"):
+            data[key] = parse_inline_array(value)
+        else:
+            data[key] = value.strip("'\"")
+        i += 1
     return data
 
 
@@ -52,20 +99,19 @@ def slug_from_path(path: Path, wiki: Path) -> str:
     return str(rel.with_suffix("")).replace(os.sep, "/")
 
 
-def wiki_page_exists(target: str, wiki: Path, pages: set[str]) -> bool:
+def wiki_page_exists(target: str, wiki: Path, pages: Set[str]) -> bool:
     target = target.strip()
     if target in pages:
         return True
-    # Allow linking by filename without directory
     basename = Path(target).stem
     return any(p.endswith(f"/{basename}") or p == basename for p in pages)
 
 
-def load_taxonomy(schema_path: Path) -> set[str]:
+def load_taxonomy(schema_path: Path) -> Set[str]:
     if not schema_path.exists():
         return set()
     text = schema_path.read_text(encoding="utf-8")
-    tags: set[str] = set()
+    tags: Set[str] = set()
     in_taxonomy = False
     for line in text.splitlines():
         if line.strip().startswith("## Tag Taxonomy"):
@@ -74,7 +120,6 @@ def load_taxonomy(schema_path: Path) -> set[str]:
         if in_taxonomy and line.startswith("## "):
             break
         if in_taxonomy and line.strip().startswith("- "):
-            # e.g. "- Models: model, architecture, benchmark"
             parts = line.split(":", 1)
             if len(parts) == 2:
                 for tag in parts[1].split(","):
@@ -82,8 +127,8 @@ def load_taxonomy(schema_path: Path) -> set[str]:
     return tags
 
 
-def collect_wiki_pages(wiki: Path) -> dict[str, Path]:
-    pages: dict[str, Path] = {}
+def collect_wiki_pages(wiki: Path) -> Dict[str, Path]:
+    pages: Dict[str, Path] = {}
     for dirname in WIKI_DIRS:
         base = wiki / dirname
         if not base.exists():
@@ -93,14 +138,14 @@ def collect_wiki_pages(wiki: Path) -> dict[str, Path]:
     return pages
 
 
-def extract_index_slugs(index_text: str) -> set[str]:
-    slugs: set[str] = set()
+def extract_index_slugs(index_text: str) -> Set[str]:
+    slugs: Set[str] = set()
     for match in WIKILINK_RE.finditer(index_text):
         slugs.add(match.group(1).strip())
     return slugs
 
 
-def sha256_body(text: str) -> str | None:
+def sha256_body(text: str) -> Optional[str]:
     match = FRONTMATTER_RE.match(text)
     body = text[match.end() :] if match else text
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
@@ -122,8 +167,8 @@ def lint_wiki(wiki: Path) -> LintReport:
     page_slugs = set(pages.keys())
     taxonomy = load_taxonomy(wiki / "SCHEMA.md")
 
-    inbound: dict[str, int] = {slug: 0 for slug in page_slugs}
-    outbound: dict[str, list[str]] = {slug: [] for slug in page_slugs}
+    inbound: Dict[str, int] = {slug: 0 for slug in page_slugs}
+    outbound: Dict[str, List[str]] = {slug: [] for slug in page_slugs}
 
     for slug, path in pages.items():
         text = path.read_text(encoding="utf-8")
@@ -201,6 +246,20 @@ def lint_wiki(wiki: Path) -> LintReport:
     return report
 
 
+def summarize_issues(issues: List[Issue]) -> Dict[str, int]:
+    counts = {"error": 0, "warn": 0, "info": 0}
+    for issue in issues:
+        counts[issue.severity] = counts.get(issue.severity, 0) + 1
+    return counts
+
+
+def report_exit_code(report: LintReport) -> int:
+    counts = summarize_issues(report.issues)
+    if not report.issues:
+        return 0
+    return 1 if counts.get("error", 0) or counts.get("warn", 0) else 0
+
+
 def print_report(report: LintReport) -> int:
     order = {"error": 0, "warn": 1, "info": 2}
     issues = sorted(report.issues, key=lambda i: (order.get(i.severity, 9), i.category, i.message))
@@ -209,19 +268,33 @@ def print_report(report: LintReport) -> int:
         print("OK — no issues found")
         return 0
 
-    counts = {"error": 0, "warn": 0, "info": 0}
+    counts = summarize_issues(issues)
     for issue in issues:
-        counts[issue.severity] = counts.get(issue.severity, 0) + 1
         print(f"[{issue.severity.upper():5}] {issue.category}: {issue.message}")
 
     print(
         f"\nSummary: {counts.get('error', 0)} errors, "
         f"{counts.get('warn', 0)} warnings, {counts.get('info', 0)} info"
     )
-    return 1 if counts.get("error", 0) or counts.get("warn", 0) else 0
+    return report_exit_code(report)
 
 
-def main(argv: Iterable[str] | None = None) -> int:
+def print_report_json(report: LintReport, wiki_path: Path) -> int:
+    order = {"error": 0, "warn": 1, "info": 2}
+    issues = sorted(report.issues, key=lambda i: (order.get(i.severity, 9), i.category, i.message))
+    counts = summarize_issues(issues)
+    payload = {
+        "version": __version__,
+        "wiki_path": str(wiki_path.resolve()),
+        "ok": not issues or (counts.get("error", 0) == 0 and counts.get("warn", 0) == 0),
+        "summary": counts,
+        "issues": [asdict(issue) for issue in issues],
+    }
+    print(json.dumps(payload, indent=2))
+    return report_exit_code(report)
+
+
+def main(argv: Optional[Iterable[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Lint an LLM Wiki directory")
     parser.add_argument(
         "wiki_path",
@@ -229,8 +302,21 @@ def main(argv: Iterable[str] | None = None) -> int:
         default=os.environ.get("WIKI_PATH", os.path.expanduser("~/wiki")),
         help="Path to wiki root (default: $WIKI_PATH or ~/wiki)",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output structured JSON for agent parsing",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
     args = parser.parse_args(list(argv) if argv is not None else None)
-    report = lint_wiki(Path(args.wiki_path))
+    wiki_path = Path(args.wiki_path)
+    report = lint_wiki(wiki_path)
+    if args.json:
+        return print_report_json(report, wiki_path)
     return print_report(report)
 
 

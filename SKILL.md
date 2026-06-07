@@ -65,7 +65,7 @@ Map these operations to whatever tools the host agent provides:
 | Fetch URLs | WebFetch, curl, or browser tools |
 | Fetch PDFs | PDF skill or download + extract |
 | Compute SHA256 | Shell: `python3 -c "import hashlib; ..."` |
-| Lint wiki | Run `scripts/lint-wiki.py "$WIKI"` |
+| Lint wiki | Run `<skill-dir>/scripts/lint-wiki.py "$WIKI"` (see Lint section) |
 
 ## Resuming an Existing Wiki (CRITICAL)
 
@@ -84,7 +84,10 @@ For wikis with 100+ pages, also search for the topic before creating new pages.
 When the user asks to create or start a wiki:
 
 1. Resolve wiki path (`$WIKI_PATH`, ask user, or default `~/wiki`)
-2. Create the directory structure (all `raw/` subdirs, `entities/`, `concepts/`, `comparisons/`, `queries/`, `_archive/`)
+2. Create the directory structure — copy from skill `templates/` or create manually:
+   - `raw/articles/`, `raw/papers/`, `raw/transcripts/`, `raw/assets/`
+   - `entities/`, `concepts/`, `comparisons/`, `queries/`, `_archive/`
+   - Place a `.gitkeep` in each empty directory so git tracks them
 3. Ask what domain the wiki covers — be specific
 4. Write `SCHEMA.md` from [templates/SCHEMA.md](templates/SCHEMA.md), customized to the domain
 5. Write `index.md` from [templates/index.md](templates/index.md)
@@ -141,11 +144,13 @@ When the user asks a question about the wiki's domain:
 
 When the user asks to lint, audit, or health-check the wiki:
 
-Run the bundled linter first:
+Resolve the lint script path first. `<skill-dir>` is the directory containing this `SKILL.md` (e.g. `~/.cursor/skills/create-wiki-skill/`). Run:
 
 ```bash
-python3 scripts/lint-wiki.py "$WIKI"
+python3 "<skill-dir>/scripts/lint-wiki.py" "$WIKI"
 ```
+
+Add `--json` for structured output agents can parse.
 
 Then manually verify anything the script cannot judge (contradictions, stale content).
 The script checks:
@@ -219,7 +224,7 @@ Set attachment folder to `raw/assets/`. For headless server sync, see [reference
 - Schema template: [templates/SCHEMA.md](templates/SCHEMA.md)
 - Index template: [templates/index.md](templates/index.md)
 - Log template: [templates/log.md](templates/log.md)
-- Example workflow: [examples/ai-research-wiki.md](examples/ai-research-wiki.md)
+- Example workflows: [examples/ai-research-wiki.md](examples/ai-research-wiki.md), [examples/competitive-intelligence-wiki.md](examples/competitive-intelligence-wiki.md)
 - Manual lint checks: [reference/lint-checks.md](reference/lint-checks.md)
 - Obsidian headless sync: [reference/obsidian-sync.md](reference/obsidian-sync.md)
 - Related tools: [reference/related-tools.md](reference/related-tools.md)

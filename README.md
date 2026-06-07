@@ -5,6 +5,8 @@
 
 Based on [Andrej Karpathy's LLM Wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) — an LLM agent acts as a **librarian**, not just a chatbot. Compile knowledge once, cross-reference it, and keep it current.
 
+**Repository note:** The GitHub repo slug is [`create-wiki`](https://github.com/Tamaz-sujashvili/create-wiki), but the installed skill directory is named `create-wiki-skill`.
+
 ## Why not RAG?
 
 | Traditional RAG | LLM Wiki |
@@ -18,8 +20,14 @@ Based on [Andrej Karpathy's LLM Wiki pattern](https://gist.github.com/karpathy/4
 ## Quick Start
 
 ```bash
-# One-line install (Cursor)
+# One-line install (Cursor — default target)
 curl -fsSL https://raw.githubusercontent.com/Tamaz-sujashvili/create-wiki/main/scripts/install.sh | bash
+
+# One-line install with target (use bash -s -- to pass arguments)
+curl -fsSL https://raw.githubusercontent.com/Tamaz-sujashvili/create-wiki/main/scripts/install.sh | bash -s -- claude
+curl -fsSL https://raw.githubusercontent.com/Tamaz-sujashvili/create-wiki/main/scripts/install.sh | bash -s -- codex
+curl -fsSL https://raw.githubusercontent.com/Tamaz-sujashvili/create-wiki/main/scripts/install.sh | bash -s -- hermes
+curl -fsSL https://raw.githubusercontent.com/Tamaz-sujashvili/create-wiki/main/scripts/install.sh | bash -s -- all
 
 # Or clone and install locally
 git clone https://github.com/Tamaz-sujashvili/create-wiki.git
@@ -71,7 +79,7 @@ The agent scaffolds the structure, writes `SCHEMA.md`, and asks what to ingest f
 
 ### Manual
 
-Copy the entire `create-wiki-skill/` folder into your agent's skills directory. The only required file is `SKILL.md`; bundled scripts and templates are optional but recommended.
+Copy the entire skill folder into your agent's skills directory. The only required file is `SKILL.md`; bundled scripts and templates are optional but recommended.
 
 ## Architecture
 
@@ -103,10 +111,12 @@ Ask a question about your wiki's domain. The agent reads the index, finds releva
 
 ### Lint
 
-Ask the agent to audit the wiki, or run the bundled linter:
+Ask the agent to audit the wiki, or run the bundled linter from the skill install directory:
 
 ```bash
-python3 scripts/lint-wiki.py "$WIKI_PATH"
+SKILL_DIR="$HOME/.cursor/skills/create-wiki-skill"  # adjust for your agent
+python3 "$SKILL_DIR/scripts/lint-wiki.py" "$WIKI_PATH"
+python3 "$SKILL_DIR/scripts/lint-wiki.py" "$WIKI_PATH" --json
 ```
 
 Checks: orphan pages, broken wikilinks, stale content, contradictions, tag drift, source integrity, and more.
@@ -117,6 +127,7 @@ Checks: orphan pages, broken wikilinks, stale content, contradictions, tag drift
 create-wiki-skill/
 ├── SKILL.md              # Main skill instructions
 ├── README.md             # This file
+├── CONTRIBUTING.md       # How to contribute
 ├── templates/            # SCHEMA, index, log templates for new wikis
 ├── examples/             # Example workflows
 ├── reference/            # Obsidian sync, lint checks, related tools

@@ -4,6 +4,7 @@ set -euo pipefail
 
 SKILL_NAME="create-wiki-skill"
 REPO_URL="https://github.com/Tamaz-sujashvili/create-wiki.git"
+VERSION="1.0.1"
 TMP_DIR=""
 
 cleanup() {
@@ -15,7 +16,7 @@ trap cleanup EXIT
 
 usage() {
   cat <<EOF
-Create Wiki Skill — installer
+Create Wiki Skill — installer v${VERSION}
 
 Usage: install.sh [target]
 
@@ -28,18 +29,65 @@ Targets:
   local DIR Install to a custom directory
 
 Examples:
+  # One-line install (default: cursor)
   curl -fsSL https://raw.githubusercontent.com/Tamaz-sujashvili/create-wiki/main/scripts/install.sh | bash
+
+  # One-line install with target (note: bash -s -- passes arguments)
+  curl -fsSL https://raw.githubusercontent.com/Tamaz-sujashvili/create-wiki/main/scripts/install.sh | bash -s -- claude
+  curl -fsSL https://raw.githubusercontent.com/Tamaz-sujashvili/create-wiki/main/scripts/install.sh | bash -s -- codex
+  curl -fsSL https://raw.githubusercontent.com/Tamaz-sujashvili/create-wiki/main/scripts/install.sh | bash -s -- hermes
+  curl -fsSL https://raw.githubusercontent.com/Tamaz-sujashvili/create-wiki/main/scripts/install.sh | bash -s -- all
+  curl -fsSL https://raw.githubusercontent.com/Tamaz-sujashvili/create-wiki/main/scripts/install.sh | bash -s -- local /tmp/create-wiki-skill
+
+  # Local install from cloned repo
   ./scripts/install.sh cursor
   ./scripts/install.sh local ~/.cursor/skills/$SKILL_NAME
 EOF
 }
 
-install_to() {
+copy_skill_to() {
   local dest="$1"
+  local src="$2"
   mkdir -p "$dest"
-  cp -R "$TMP_DIR/create-wiki-skill/"* "$dest/"
+  if command -v rsync &>/dev/null; then
+    rsync -a \
+      --exclude='.git' \
+      --exclude='__pycache__' \
+      --exclude='.DS_Store' \
+      --exclude='*.pyc' \
+      "$src/" "$dest/"
+  else
+    (
+      cd "$src"
+      tar cf - \
+        --exclude='.git' \
+        --exclude='__pycache__' \
+        --exclude='.DS_Store' \
+        --exclude='*.pyc' \
+        .
+    ) | (cd "$dest" && tar xf -)
+  fi
   echo "Installed to $dest"
 }
+
+# Handle flags before target parsing
+while [[ $# -gt 0 && "$1" == -* ]]; do
+  case "$1" in
+    --version|-V)
+      echo "create-wiki-skill installer v${VERSION}"
+      exit 0
+      ;;
+    -h|--help|help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
 
 TARGET="${1:-cursor}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -48,28 +96,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/../SKILL.md" ]]; then
   SRC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
   install_to() {
-    local dest="$1"
-    mkdir -p "$dest"
-    cp -R "$SRC_DIR/"* "$dest/"
-    echo "Installed to $dest"
+    copy_skill_to "$1" "$SRC_DIR"
   }
 else
   TMP_DIR="$(mktemp -d)"
   git clone --depth 1 "$REPO_URL" "$TMP_DIR/repo" >/dev/null 2>&1
   if [[ -d "$TMP_DIR/repo/create-wiki-skill" ]]; then
-    TMP_DIR="$TMP_DIR/repo/create-wiki-skill"
+    SRC_DIR="$TMP_DIR/repo/create-wiki-skill"
   else
-    TMP_DIR="$TMP_DIR/repo"
+    SRC_DIR="$TMP_DIR/repo"
   fi
   install_to() {
-    local dest="$1"
-    mkdir -p "$dest"
-    if [[ -f "$TMP_DIR/SKILL.md" ]]; then
-      cp -R "$TMP_DIR/"* "$dest/"
-    else
-      cp -R "$TMP_DIR/create-wiki-skill/"* "$dest/"
-    fi
-    echo "Installed to $dest"
+    copy_skill_to "$1" "$SRC_DIR"
   }
 fi
 
@@ -99,10 +137,6 @@ case "$TARGET" in
       exit 1
     fi
     install_to "$2"
-    ;;
-  -h|--help|help)
-    usage
-    exit 0
     ;;
   *)
     echo "Unknown target: $TARGET" >&2
